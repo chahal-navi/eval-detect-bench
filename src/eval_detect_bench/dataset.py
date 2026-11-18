@@ -60,9 +60,11 @@ def pool_for_model(model_name: str) -> str | None:
     are treated alike, so OpenRouter's `claude-haiku-4.5` maps to
     `claude-haiku-4-5`. A date suffix is allowed (`claude-haiku-4-5-20251001`,
     `gpt-4.1-2025-04-14`), but other suffixes are different models:
-    `gpt-4.1-mini` has no pool.
+    `gpt-4.1-mini` has no pool. OpenRouter's dated Claude names put the version
+    first (`claude-4.5-haiku-20251001`) and are reordered before matching.
     """
     base = model_name.rsplit("/", 1)[-1].replace(".", "-")
+    base = re.sub(r"^claude-(\d+(?:-\d+)?)-(haiku|sonnet|opus)(?=-\d{8}$|$)", r"claude-\2-\1", base)
     for pool in TRANSCRIPT_POOLS:
         if re.fullmatch(re.escape(pool.replace(".", "-")) + r"(-\d{8}|-\d{4}-\d{2}-\d{2})?", base):
             return pool

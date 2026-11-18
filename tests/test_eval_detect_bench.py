@@ -170,6 +170,10 @@ def test_resolve_probes_variants() -> None:
         ("openrouter/anthropic/claude-haiku-4.5", "claude-haiku-4-5"),
         ("openrouter/anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
         ("openrouter/anthropic/claude-haiku-5.5", None),
+        ("openrouter/anthropic/claude-4.5-haiku-20251001", "claude-haiku-4-5"),
+        ("openrouter/anthropic/claude-4.6-opus-20260205", "claude-opus-4-6"),
+        ("openrouter/anthropic/claude-4.5-opus-20251124", None),
+        ("openrouter/openai/gpt-4.1-2025-04-14", "gpt-4.1"),
         ("mockllm/model", None),
     ],
 )
