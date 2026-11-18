@@ -167,6 +167,9 @@ def test_resolve_probes_variants() -> None:
         ("openrouter/qwen/qwen3.5-397b-a17b", "qwen3.5-397b-a17b"),
         ("openai/gpt-4.1-2025-04-14", "gpt-4.1"),
         ("openai/gpt-4.1-mini", None),
+        ("openrouter/anthropic/claude-haiku-4.5", "claude-haiku-4-5"),
+        ("openrouter/anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
+        ("openrouter/anthropic/claude-haiku-5.5", None),
         ("mockllm/model", None),
     ],
 )
@@ -297,6 +300,13 @@ def test_prepare_messages_claude_placeholder_only_for_bare_claude_names() -> Non
     # OpenRouter's model name is "anthropic/claude-...": no placeholder, as in the paper.
     assert prepare_messages(messages, "anthropic/claude-opus-4-6") == messages
     assert prepare_messages(messages, "gpt-4.1") == messages
+
+
+def test_prepare_messages_placeholder_can_be_forced() -> None:
+    messages: list[ChatMessage] = [ChatMessageUser(content="hi")]
+    forced = prepare_messages(messages, "anthropic/claude-haiku-4.5", claude_placeholder=True)
+    assert [m.role for m in forced] == ["user", "assistant"]
+    assert prepare_messages(messages, "claude-haiku-4-5", claude_placeholder=False) == messages
 
 
 def test_prepare_messages_drops_trailing_system_for_claude() -> None:

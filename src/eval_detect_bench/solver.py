@@ -53,17 +53,25 @@ def close_dangling_tool_calls(messages: list[ChatMessage]) -> list[ChatMessage]:
     return out
 
 
-def prepare_messages(messages: list[ChatMessage], model_name: str) -> list[ChatMessage]:
+def prepare_messages(
+    messages: list[ChatMessage], model_name: str, claude_placeholder: bool | None = None
+) -> list[ChatMessage]:
     """Apply the reference's Claude-specific fix-up before the probe is appended.
 
-    The reference checks `model.api.model_name.startswith("claude")`. That is true
-    for `anthropic/claude-*` but not for `openrouter/anthropic/claude-*`, whose
-    model name is `anthropic/claude-*`. The paper ran Haiku 4.5 directly and Sonnet
-    and Opus 4.6 through OpenRouter, so only Haiku got this fix-up. We keep that
-    behaviour so results stay comparable.
+    The fix-up drops a trailing system message and, if the transcript ends on a
+    user message, adds a placeholder assistant turn before the probe.
+
+    By default (`claude_placeholder=None`) it follows the reference, which checks
+    `model.api.model_name.startswith("claude")`. That is true for
+    `anthropic/claude-*` but not for `openrouter/anthropic/claude-*`, whose model
+    name is `anthropic/claude-*`. The paper ran Haiku 4.5 directly and Sonnet and
+    Opus 4.6 through OpenRouter, so only Haiku got the fix-up. `True` or `False`
+    forces it on or off, e.g. to reproduce the paper's Haiku prompts through
+    OpenRouter.
     """
     messages = list(messages)
-    if model_name.startswith("claude"):
+    apply = model_name.startswith("claude") if claude_placeholder is None else claude_placeholder
+    if apply:
         if messages and isinstance(messages[-1], ChatMessageSystem):
             messages.pop()
         if messages and isinstance(messages[-1], ChatMessageUser):
@@ -98,17 +106,21 @@ def tool_defs(tools: list[dict[str, Any]]) -> list[ToolDef]:
 
 
 @solver
-def inject_probe() -> Solver:
+def inject_probe(claude_placeholder: bool | None = None) -> Solver:
     """Append the sample's probe question after the transcript.
 
     The transcript's tools are attached with `tool_choice="none"`, so the judge
-    sees an agentic transcript's tool schema but can only answer in text.
+    can only answer in text. Inspect passes the tool schemas only to providers
+    that require them (Anthropic, once tool messages are present).
+
+    Args:
+        claude_placeholder: See `prepare_messages`. None follows the reference.
     """
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         probe = load_probes()[state.metadata["probe_id"]]
         model_name = get_model().api.model_name
-        messages = prepare_messages(state.messages, model_name)
+        messages = prepare_messages(state.messages, model_name, claude_placeholder)
         state.messages = [*messages, ChatMessageUser(content=probe.template_text)]
         state.tools = tool_defs(state.metadata.get("tools", []))  # type: ignore[assignment]
         state.tool_choice = "none"

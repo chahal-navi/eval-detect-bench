@@ -56,13 +56,15 @@ def pool_for_model(model_name: str) -> str | None:
     """Return the transcript pool matching a model name, if there is one.
 
     Matches on the last path segment, so `openrouter/openai/gpt-5.1` and
-    `openai/gpt-5.1` both map to `gpt-5.1`. A date suffix is allowed
-    (`claude-haiku-4-5-20251001`, `gpt-4.1-2025-04-14`), but other suffixes
-    are different models: `gpt-4.1-mini` has no pool.
+    `openai/gpt-5.1` both map to `gpt-5.1`. Dots and hyphens in version numbers
+    are treated alike, so OpenRouter's `claude-haiku-4.5` maps to
+    `claude-haiku-4-5`. A date suffix is allowed (`claude-haiku-4-5-20251001`,
+    `gpt-4.1-2025-04-14`), but other suffixes are different models:
+    `gpt-4.1-mini` has no pool.
     """
-    base = model_name.rsplit("/", 1)[-1]
+    base = model_name.rsplit("/", 1)[-1].replace(".", "-")
     for pool in TRANSCRIPT_POOLS:
-        if re.fullmatch(re.escape(pool) + r"(-\d{8}|-\d{4}-\d{2}-\d{2})?", base):
+        if re.fullmatch(re.escape(pool.replace(".", "-")) + r"(-\d{8}|-\d{4}-\d{2}-\d{2})?", base):
             return pool
     return None
 

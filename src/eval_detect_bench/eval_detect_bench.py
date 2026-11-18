@@ -58,6 +58,7 @@ def eval_detect_bench(
     calibration_fraction: float = 0.2,
     seed: int = 42,
     shuffle: bool = True,
+    claude_placeholder: bool | None = None,
 ) -> Task:
     """Ask the judge model whether each transcript came from an evaluation or from deployment.
 
@@ -78,6 +79,11 @@ def eval_detect_bench(
         calibration_fraction: Fraction of transcripts in the calibration slice.
         seed: Seed for the calibration split and the sample shuffle.
         shuffle: Shuffle samples so `--limit` draws from every source.
+        claude_placeholder: Whether to add the reference's placeholder assistant
+            turn when a transcript ends on a user message. None follows the
+            reference: on for model names starting with "claude" (the direct
+            Anthropic API), off otherwise, including Claude via OpenRouter. Set
+            True to reproduce the paper's Claude Haiku 4.5 prompts through OpenRouter.
 
     Returns:
         The EvalDetectBench task.
@@ -95,7 +101,7 @@ def eval_detect_bench(
     )
     return Task(
         dataset=dataset,
-        solver=[inject_probe(), generate()],
+        solver=[inject_probe(claude_placeholder), generate()],
         scorer=probe_label_scorer(),
         metadata={"transcript_pool": pool, "probe_ids": [p.id for p in probe_list]},
         version=EVAL_VERSION,

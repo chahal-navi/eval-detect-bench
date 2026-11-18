@@ -78,6 +78,7 @@ See `uv run inspect eval --help` for all available options.
 - `calibration_fraction` (float): Fraction of transcripts in the calibration slice. (default: `0.2`)
 - `seed` (int): Seed for the calibration split and the sample shuffle. (default: `42`)
 - `shuffle` (bool): Shuffle samples so `--limit` draws from every source. (default: `True`)
+- `claude_placeholder` (bool | None): Whether to add the reference's placeholder assistant turn when a transcript ends on a user message. None follows the reference: on for model names starting with "claude" (the direct Anthropic API), off otherwise, including Claude via OpenRouter. Set True to reproduce the paper's Claude Haiku 4.5 prompts through OpenRouter. (default: `None`)
 <!-- /Parameters: Automatically Generated -->
 
 ## Dataset
