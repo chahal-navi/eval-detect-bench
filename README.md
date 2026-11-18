@@ -146,17 +146,40 @@ These checks call no model. They feed the authors' published judge outputs throu
 
 ### Fresh runs
 
-| Judge | Pool overlap with paper's scored set | Paper AUROC | This implementation |
-| --- | --- | --- | --- |
-| `anthropic/claude-haiku-4-5` | 718 / 728 (99%) | 0.758 | *pending* |
-| `openai/gpt-4.1` | 718 / 728 (99%) | 0.784 | *pending* |
+Run on Hawk on 18 November 2026 with the full transcript pools and the paper's probe sets, at commit `90498bf`. Configs are in `hawk/`. Both judges were reached through OpenRouter, pinned to dated snapshots.
 
-The published pools don't exactly match the transcripts the authors scored. For the other frontier judges only 54–59% of the scored transcripts are in the published pool (the rest were renamed or re-collected), so Haiku 4.5 and GPT-4.1 are the judges whose fresh runs can be compared with the paper.
+| Judge | Samples | Errors | Parse failures | AUROC | AUPRC | Accuracy | Mean P(eval), eval / deploy |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `openrouter/openai/gpt-4.1-2025-04-14` | 3,690 | 0 | 0.03% | **0.766** | 0.754 | 0.718 | 0.636 / 0.270 |
+| `openrouter/anthropic/claude-4.5-haiku-20251001` (`claude_placeholder=true`) | 3,690 | 0 | 0.05% | **0.733** | 0.729 | 0.667 | 0.713 / 0.429 |
+
+#### Comparison with the paper
+
+The published pools don't exactly match the transcripts the authors scored. The like-for-like comparison uses the 718 transcripts both runs scored.
+
+| Judge | Paper (Fig. 6, its 728 transcripts) | Paper on the 718 common | Ours on the 718 common | Difference, paired bootstrap 95% CI | Per-transcript P(eval) correlation |
+| --- | --- | --- | --- | --- | --- |
+| GPT-4.1 | 0.784 | 0.779 | 0.765 | −0.014 [−0.029, +0.001] | r = 0.93 |
+| Claude Haiku 4.5 | 0.758 | 0.755 | 0.748 | −0.008 [−0.026, +0.011] | r = 0.90 |
+
+On the transcripts the paper scored, both judges reproduce its AUROC within sampling noise. The 95% intervals include zero, and mean P(eval) for each class is within 0.02 of the paper's.
+
+Haiku's lower full-pool AUROC (0.733) comes from the pool itself: it contains 20 GAIA Level 2 transcripts the paper never scored, and Haiku rates them as deployment-like (mean P(eval) 0.37). Without them the full-pool AUROC is 0.748.
+
+The bootstrap covers transcript sampling only, not variation between generations. Judges ran at the provider's default temperature, as in the paper.
+
+Route differences from the paper:
+
+- GPT-4.1 used OpenRouter, the same route as the paper.
+- Haiku 4.5 used the direct Anthropic API in the paper, but OpenRouter here. `claude_placeholder=true` reproduces its prompts. The remaining difference is that the 245 agentic transcripts' tool schemas aren't sent to the judge over OpenRouter.
+
+For the other frontier judges only 54–59% of the scored transcripts are in the published pool (the rest were renamed or re-collected), so Haiku 4.5 and GPT-4.1 are the judges whose fresh runs can be compared with the paper.
 
 ## Deviations from the original implementation
 
 | What changed | Why | Expected effect on scores |
 | --- | --- | --- |
+| Claude judges reached through OpenRouter don't get the transcript's tool schemas | Inspect sends tool schemas only to providers that require them; Anthropic's API does, OpenRouter's OpenAI-compatible API doesn't. Hawk offers Claude only through OpenRouter. | Affects the paper's Haiku 4.5 run (direct API) on agentic transcripts; the Haiku replication still matches the paper within noise |
 | Unanswered tool calls inside a transcript get an empty tool result, not only a trailing one | A few DataClaw transcripts have an assistant turn where some calls got results and some didn't. Anthropic rejects these requests, and they failed in the authors' run. The fix reproduces the prompt in the authors' only successful sample for such a transcript. | None for transcripts that already worked; makes 38 Haiku-pool and 32 GPT-4.1-pool transcripts scoreable on every probe |
 | No "uncertain" (0.5) vote | The published scorer has no uncertain path. One response in the authors' Haiku log was scored 0.5 by an earlier version. | Negligible (1 of 3,640 responses) |
 | Probe selection runs as a separate calibration task plus a CLI, not a pipeline stage | Keeps the Inspect task self-contained | None: the split and the exhaustive search are line-for-line ports, tested against the reference |
