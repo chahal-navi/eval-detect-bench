@@ -1,0 +1,27 @@
+# EvalDetectBench replication on Hawk: Claude Haiku 4.5 and GPT-4.1 as judges.
+# Each judge scores its own transcript pool (the task picks the pool from the
+# judge model), with the probe set the paper selected for it.
+#   hawk eval-set hawk/smoke.eval-set.yaml
+name: edb-smoke
+tasks:
+  - package: "git+https://github.com/chahal-navi/eval-detect-bench@98997ac9a89f34b8b3bc1cd959faa7094523a2e2"
+    name: eval_detect_bench
+    items:
+      - name: eval_detect_bench
+models:
+  # Direct Anthropic API, as in the paper (needed for the Claude placeholder turn).
+  - package: anthropic
+    name: anthropic
+    items:
+      - name: claude-haiku-4-5
+  # The paper reached GPT-4.1 through OpenRouter; the prompt is identical.
+  - package: openai
+    name: openai
+    items:
+      - name: gpt-4.1
+limit: 20 # first 20 (shuffled) samples per judge
+epochs: 1
+max_retries: 5
+runner:
+  cpu: "1"
+  memory: 4Gi
