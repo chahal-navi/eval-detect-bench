@@ -4,7 +4,7 @@
 #   hawk eval-set run hawk/openrouter-smoke.eval-set.yaml
 name: edb-or-smoke
 tasks:
-  - package: "git+https://github.com/chahal-navi/eval-detect-bench@132054de80aba541a28d610538476a8ccf532b5b"
+  - package: "git+https://github.com/chahal-navi/eval-detect-bench@b77650fa7723fba24aab1395270514303bff52dc"
     name: eval_detect_bench
     items:
       - name: eval_detect_bench
