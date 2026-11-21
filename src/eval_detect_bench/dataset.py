@@ -71,19 +71,45 @@ def pool_for_model(model_name: str) -> str | None:
     return None
 
 
-def download_pool(pool: str) -> list[dict[str, Any]]:
-    """Download a pool's `all.json` at the pinned revision and return its records."""
-    if pool not in TRANSCRIPT_POOLS:
-        raise ValueError(f"Unknown transcript pool '{pool}'. Choose one of {TRANSCRIPT_POOLS}.")
+# Sources the paper scored (Table 7) that some pools' all.json leave out. For
+# the claude-haiku-4-5 and gpt-4.1 pools, all.json has no WMDP-bio transcripts,
+# but <pool>/wmdp_bio.json holds exactly the 10 the paper scored.
+SUPPLEMENTARY_SOURCES = ("wmdp_bio",)
+
+
+def _download_records(pool: str, source: str) -> list[dict[str, Any]]:
     path = hf_hub_download(
         repo_id=HF_REPO_ID,
         repo_type="dataset",
-        filename=f"collected_trajectories/{pool}/all.json",
+        filename=f"collected_trajectories/{pool}/{source}.json",
         revision=HF_REVISION,
     )
     with open(path, encoding="utf-8") as f:
         records: list[dict[str, Any]] = json.load(f)
     return records
+
+
+def add_missing_sources(
+    records: list[dict[str, Any]], pool: str, sources: tuple[str, ...] = SUPPLEMENTARY_SOURCES
+) -> list[dict[str, Any]]:
+    """Append per-source files for sources that a pool's all.json leaves out."""
+    present = {str(r["id"]).split(":", 1)[0] for r in records}
+    ids = {r["id"] for r in records}
+    out = list(records)
+    for source in sources:
+        if source not in present:
+            out.extend(r for r in _download_records(pool, source) if r["id"] not in ids)
+    return out
+
+
+def download_pool(pool: str) -> list[dict[str, Any]]:
+    """Download a pool's transcripts at the pinned revision.
+
+    Reads `<pool>/all.json` and adds any `SUPPLEMENTARY_SOURCES` it leaves out.
+    """
+    if pool not in TRANSCRIPT_POOLS:
+        raise ValueError(f"Unknown transcript pool '{pool}'. Choose one of {TRANSCRIPT_POOLS}.")
+    return add_missing_sources(_download_records(pool, "all"), pool)
 
 
 def record_to_sample(record: dict[str, Any]) -> Sample:
@@ -152,6 +178,12 @@ def build_dataset(
     name: str = "eval_detect_bench",
 ) -> MemoryDataset:
     """Build the transcript x probe dataset for one pool."""
+    if split not in ("all", "calibration", "measurement"):
+        raise ValueError(f"split must be 'all', 'calibration' or 'measurement', got '{split}'.")
+    if split != "all" and not 0.0 < calibration_fraction < 1.0:
+        raise ValueError(
+            f"calibration_fraction must be between 0 and 1 (exclusive), got {calibration_fraction}."
+        )
     transcripts = [record_to_sample(r) for r in records]
     if split != "all":
         calibration, measurement = stratified_split(transcripts, calibration_fraction, seed)
