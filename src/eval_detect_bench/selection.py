@@ -31,9 +31,10 @@ class ProbeSelection:
 def vote_matrix(log: EvalLog) -> tuple[np.ndarray, list[str], np.ndarray]:
     """Pivot a calibration log into a (transcripts x probes) vote matrix.
 
-    Parse failures are NaN. Returns (votes, probe_ids sorted, labels).
+    A cell is the mean of that probe's parseable votes on the transcript (one
+    per epoch), or NaN if there are none. Returns (votes, probe_ids sorted, labels).
     """
-    votes: dict[str, dict[str, float]] = defaultdict(dict)
+    collected: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     label: dict[str, int] = {}
     for sample in log.samples or []:
         score = (sample.scores or {}).get(SCORER_NAME)
@@ -43,16 +44,16 @@ def vote_matrix(log: EvalLog) -> tuple[np.ndarray, list[str], np.ndarray]:
         if value == PARSE_FAILURE:
             continue
         tid = str(sample.metadata["transcript_id"])
-        votes[tid][str(sample.metadata["probe_id"])] = value
+        collected[tid][str(sample.metadata["probe_id"])].append(value)
         label[tid] = int(bool(sample.metadata["eval_category"]))
 
-    probe_ids = sorted({p for row in votes.values() for p in row})
-    tids = sorted(votes)
+    probe_ids = sorted({p for row in collected.values() for p in row})
+    tids = sorted(collected)
     matrix = np.full((len(tids), len(probe_ids)), np.nan)
     col = {p: j for j, p in enumerate(probe_ids)}
     for i, tid in enumerate(tids):
-        for p, v in votes[tid].items():
-            matrix[i, col[p]] = v
+        for p, values in collected[tid].items():
+            matrix[i, col[p]] = float(np.mean(values))
     labels = np.array([label[t] for t in tids], dtype=int)
     return matrix, probe_ids, labels
 

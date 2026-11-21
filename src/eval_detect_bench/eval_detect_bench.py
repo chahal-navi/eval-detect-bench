@@ -99,9 +99,16 @@ def eval_detect_bench(
         shuffle=shuffle,
         name=f"eval_detect_bench_{pool}",
     )
+    # The probe is injected in `setup`, which Inspect runs even when `--solver`
+    # replaces `solver`. Without it the judge would just continue the transcript.
     return Task(
         dataset=dataset,
-        solver=[inject_probe(claude_placeholder), generate()],
+        setup=inject_probe(
+            claude_placeholder,
+            # Only check the judge when the pool was picked from it.
+            judge_pool=pool if transcripts is None else None,
+        ),
+        solver=generate(),
         scorer=probe_label_scorer(),
         metadata={"transcript_pool": pool, "probe_ids": [p.id for p in probe_list]},
         version=EVAL_VERSION,

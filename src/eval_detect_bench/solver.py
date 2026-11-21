@@ -13,6 +13,7 @@ from inspect_ai.model import (
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import ToolDef, ToolInfo
 
+from eval_detect_bench.dataset import pool_for_model
 from eval_detect_bench.probes import load_probes
 
 # Stands in for a missing assistant turn on Claude judges (see `prepare_messages`).
@@ -79,8 +80,18 @@ def prepare_messages(
     return close_dangling_tool_calls(messages)
 
 
-async def _never_called() -> str:
-    return ""
+def _never_called() -> Any:
+    """Make a fresh placeholder function for one tool.
+
+    Each tool needs its own function object: Inspect records the tool's name on
+    the function when it is attached, so tools sharing one function would all
+    end up with the last tool's name.
+    """
+
+    async def never_called() -> str:
+        return ""
+
+    return never_called
 
 
 def tool_defs(tools: list[dict[str, Any]]) -> list[ToolDef]:
@@ -96,7 +107,7 @@ def tool_defs(tools: list[dict[str, Any]]) -> list[ToolDef]:
             param.description = param.description or name
         defs.append(
             ToolDef(
-                tool=_never_called,
+                tool=_never_called(),
                 name=info.name,
                 description=info.description,
                 parameters=info.parameters,
@@ -106,7 +117,7 @@ def tool_defs(tools: list[dict[str, Any]]) -> list[ToolDef]:
 
 
 @solver
-def inject_probe(claude_placeholder: bool | None = None) -> Solver:
+def inject_probe(claude_placeholder: bool | None = None, judge_pool: str | None = None) -> Solver:
     """Append the sample's probe question after the transcript.
 
     The transcript's tools are attached with `tool_choice="none"`, so the judge
@@ -115,11 +126,21 @@ def inject_probe(claude_placeholder: bool | None = None) -> Solver:
 
     Args:
         claude_placeholder: See `prepare_messages`. None follows the reference.
+        judge_pool: The pool chosen from the judge model when the task was
+            built. If set, the model actually judging must map to the same pool;
+            this catches a task built for one model and run with another.
     """
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
+        model = get_model()
+        if judge_pool is not None and pool_for_model(str(model)) != judge_pool:
+            raise RuntimeError(
+                f"The task picked the '{judge_pool}' transcript pool for its judge, but "
+                f"'{model}' is judging. Pass -T transcripts=<pool> to judge a pool "
+                "with a different model."
+            )
         probe = load_probes()[state.metadata["probe_id"]]
-        model_name = get_model().api.model_name
+        model_name = model.api.model_name
         messages = prepare_messages(state.messages, model_name, claude_placeholder)
         state.messages = [*messages, ChatMessageUser(content=probe.template_text)]
         state.tools = tool_defs(state.metadata.get("tools", []))  # type: ignore[assignment]

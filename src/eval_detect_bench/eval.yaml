@@ -11,7 +11,7 @@ description: |
 group: Scheming
 contributors:
   - chahal-navi
-version: "1-A"
+version: "1-B"
 tasks:
   - name: eval_detect_bench
-    dataset_samples: 3690
+    dataset_samples: 3740

@@ -6,6 +6,25 @@ A judge model reads a transcript, chat or agentic, followed by a closed-ended pr
 
 Reference implementation: [freeze-lasr/aware_bench](https://github.com/freeze-lasr/aware_bench). Data: [el7982/aware-bench](https://huggingface.co/datasets/el7982/aware-bench).
 
+**Scope.** This implements the paper's measurement stage (probe selection, probing and scoring) on the authors' published transcript suite. Collecting new transcripts by running the source benchmarks, and the paper's side experiments (the generator-confound correction, resampling and the 6×6 generator grid), are out of scope.
+
+### For reviewers
+
+The repo was generated from the [Generality Labs eval template](https://github.com/Generality-Labs/inspect-evals-template). The eval-specific code is:
+
+| Path | What it is |
+| --- | --- |
+| `src/eval_detect_bench/eval_detect_bench.py` | The `@task` |
+| `src/eval_detect_bench/dataset.py` | Data loading, calibration split, transcript × probe pairing |
+| `src/eval_detect_bench/solver.py` | `inject_probe` (runs as the task's `setup`) |
+| `src/eval_detect_bench/scorer.py`, `metrics.py` | Label scorer and transcript-level metrics |
+| `src/eval_detect_bench/probes.py`, `probe_questions.yaml` | Probe corpus and the paper's per-judge probe sets |
+| `src/eval_detect_bench/selection.py` | Probe selection for new judges |
+| `tests/test_eval_detect_bench.py` | Tests |
+| `scripts/`, `hawk/` | Comparison with the paper, and the replication run configs |
+
+Everything else (`.github/`, `Makefile`, `agent_artefacts/`, `AGENTS.md`, `CONTRIBUTING.md`, most of `pyproject.toml`) is template scaffolding.
+
 <!-- Contributors: Automatically Generated -->
 Contributed by [@chahal-navi](https://github.com/chahal-navi)
 <!-- /Contributors: Automatically Generated -->
@@ -53,6 +72,13 @@ ANTHROPIC_API_KEY=<anthropic-api-key>
 ```
 <!-- /Usage: Automatically Generated -->
 
+> [!NOTE]
+> The judge needs a transcript pool. By default the task uses the pool of the paper judge matching `--model` (for example `--model openai/gpt-4.1` or `--model openrouter/anthropic/claude-haiku-4.5`). Any other model must name a pool, which then uses that pool's paper probe set:
+>
+> ```bash
+> uv run inspect eval eval_detect_bench/eval_detect_bench --model openai/gpt-5-nano -T transcripts=gpt-4.1 --limit 20
+> ```
+
 <!-- Options: Automatically Generated -->
 ## Options
 
@@ -83,14 +109,14 @@ See `uv run inspect eval --help` for all available options.
 
 ## Dataset
 
-The transcripts come from the authors' Hugging Face dataset, pinned to revision `2a036d1a642b64c6aea8b681a47f2624b80fd16d`. There is one pool per judge model in the paper, at `collected_trajectories/<pool>/all.json`. Each pool holds:
+The transcripts come from the authors' Hugging Face dataset, pinned to revision `2a036d1a642b64c6aea8b681a47f2624b80fd16d`. There is one pool per judge model in the paper, at `collected_trajectories/<pool>/all.json`. For `claude-haiku-4-5` and `gpt-4.1`, `all.json` leaves out the 10 WMDP-bio transcripts the paper scored, so the task also loads `<pool>/wmdp_bio.json` for those pools. Each pool holds:
 
 - **Evaluation transcripts:** that model's own trajectories on 29 benchmarks. These are agentic (SWE-bench Verified mini, Cybench, GAIA Level 2, GDPval, AgentHarm, agentic misalignment) and chat (GPQA, MMMLU, StrongREJECT, MASK, WMDP-bio, IFEval, WritingBench, BrowseComp, and 15 chat categories kept from Needham et al.).
 - **Deployment transcripts:** shared across pools, from 12 real-usage sources: DataClaw coding-agent sessions, Reddit, WildBench, ShareChat / ChatGPT / Gemini share links, CodeChat, HH-RLHF red-team, ToxicChat, CDial-Bias, Traced runs, Open Deep Research and OpenHands.
 
-The Claude Haiku 4.5 pool has 738 transcripts: 405 evaluation and 333 deployment, of which 245 are agentic. The other pools have 738–746.
+The Claude Haiku 4.5 pool has 748 transcripts: 415 evaluation and 333 deployment. 245 are agentic (100 evaluation, 145 deployment); only the 100 agentic evaluation transcripts carry tool schemas. The other pools have 745–748.
 
-Each record becomes one transcript sample, and the task pairs every transcript with every selected probe. A sample is therefore one (transcript, probe) pair, with id `<transcript_id>:<probe_id>`. With the paper's probe sets this gives 2,214–3,730 samples per judge, for example 3,690 for Haiku 4.5.
+Each record becomes one transcript sample, and the task pairs every transcript with every selected probe. A sample is therefore one (transcript, probe) pair, with id `<transcript_id>:<probe_id>`. With the paper's probe sets this gives 2,238–3,740 samples per judge, for example 3,740 for Haiku 4.5.
 
 The 20 probe questions (paper Appendix A, Table 1) are in `src/eval_detect_bench/probe_questions.yaml`, copied unchanged from the reference implementation (MIT licence).
 
@@ -112,7 +138,7 @@ Metrics are computed per transcript. P(eval) is the mean of a transcript's parse
 | `mean_p_eval_on_eval` / `mean_p_eval_on_deploy` | Mean P(eval) for each class |
 | `parse_failure_rate` | Share of probe responses without a recognisable label |
 
-Because metrics group samples by transcript, run with one epoch, as the paper did.
+The paper used one epoch. With more epochs, the metrics read each epoch's vote separately (unreduced scores), so a parse failure in one epoch never averages into another epoch's vote.
 
 ### Probe sets
 
@@ -129,33 +155,36 @@ uv run inspect eval eval_detect_bench/eval_detect_bench --model <judge> \
   -T transcripts=<pool> -T split=measurement -T probes=<ids printed above>
 ```
 
-Using `split=measurement` reports AUROC on transcripts that weren't used for selection. The paper scored all transcripts, including the calibration slice; that is `split=all`.
+`split=measurement` reports AUROC on transcripts that weren't used for *this* selection. It isn't held out from the paper's own probe sets: the calibration split follows the reference repo's `configs/reproduce.yaml` (stratified on `eval_category` and `has_tools`), but the authors' published run stratified on `category` as well, with a `max_per_category` option that doesn't exist in the released code. Their calibration slice can't be regenerated. The paper scored all transcripts, including the calibration slice; that is `split=all`.
 
 ## Evaluation report
 
 ### Implementation check against the authors' outputs
 
-These checks call no model. They feed the authors' published judge outputs through this implementation's scorer and metrics.
+These checks call no model. They feed the authors' published judge outputs through this implementation's scorer and metrics. Reproduce them with `scripts/rescore_published_log.py <judge>` and the `dataset_download` tests.
 
 | Check | Result |
 | --- | --- |
 | Figure 6 AUROC recomputed from `measure_logs/scores.csv` with our metric code | All 12 judges match to 3 decimal places (tested for Haiku 4.5, GPT-4.1 and Opus 4.6 in `tests/`) |
-| Our scorer run on the raw responses in the published Haiku 4.5 log | Agrees on 3,639 / 3,640 responses; AUROC 0.758 (paper 0.758) |
-| Our scorer run on the raw responses in the published GPT-5.1 log | Agrees on 2,226 / 2,226 responses; AUROC 0.802 (paper 0.802) |
+| Our scorer on the raw responses in the published Haiku 4.5 log | Agrees on 3,639 / 3,640 responses; AUROC 0.758 (paper 0.758) |
+| Our scorer on the raw responses in the published GPT-4.1 log | Agrees on 3,640 / 3,640 responses; AUROC 0.784 (paper 0.784) |
+| Our scorer on the raw responses in the published GPT-5.1 log | Agrees on 2,226 / 2,226 responses; AUROC 0.802 (paper 0.802) |
 | Our prompts compared with the prompts in the published Haiku 4.5 log | Identical for every sample with a successful response that the log didn't truncate |
 
 ### Fresh runs
 
-Run on Hawk on 18 November 2026 with the full transcript pools and the paper's probe sets, at commit `90498bf`. Configs are in `hawk/`. Both judges were reached through OpenRouter, pinned to dated snapshots.
+Run on [Hawk](https://viewer.hawk.hawk.generalitylabs.ai/) on 18 November 2026 at version `1-A` (commit `90498bf`), with the paper's probe sets. Both judges were reached through OpenRouter, pinned to dated snapshots. Configs are in `hawk/`.
 
-| Judge | Samples | Errors | Parse failures | AUROC | AUPRC | Accuracy | Mean P(eval), eval / deploy |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `openrouter/openai/gpt-4.1-2025-04-14` | 3,690 | 0 | 0.03% | **0.766** | 0.754 | 0.718 | 0.636 / 0.270 |
-| `openrouter/anthropic/claude-4.5-haiku-20251001` (`claude_placeholder=true`) | 3,690 | 0 | 0.05% | **0.733** | 0.729 | 0.667 | 0.713 / 0.429 |
+| Judge | Hawk eval set | Samples | Errors | Parse failures | AUROC | AUPRC | Accuracy | Mean P(eval), eval / deploy |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `openrouter/openai/gpt-4.1-2025-04-14` | [`edb-gpt41-64c6an6zrdoxcd3v`](https://viewer.hawk.hawk.generalitylabs.ai/eval-set/edb-gpt41-64c6an6zrdoxcd3v) | 3,690 | 0 | 0.03% | **0.766** | 0.754 | 0.718 | 0.636 / 0.270 |
+| `openrouter/anthropic/claude-4.5-haiku-20251001` (`claude_placeholder=true`) | [`edb-haiku45-lokdv8jsx2r8xoan`](https://viewer.hawk.hawk.generalitylabs.ai/eval-set/edb-haiku45-lokdv8jsx2r8xoan) | 3,690 | 0 | 0.05% | **0.733** | 0.729 | 0.667 | 0.713 / 0.429 |
+
+Version `1-A` read only `all.json`, so these runs lack the 10 WMDP-bio transcripts that `1-B` adds; they will be rerun at `1-B`.
 
 #### Comparison with the paper
 
-The published pools don't exactly match the transcripts the authors scored. The like-for-like comparison uses the 718 transcripts both runs scored.
+Reproduce with `uv run python scripts/compare_with_paper.py <log>.eval`. The comparison uses the transcripts both the run and the paper scored: 718 at version `1-A`, and all 728 of the paper's at `1-B`.
 
 | Judge | Paper (Fig. 6, its 728 transcripts) | Paper on the 718 common | Ours on the 718 common | Difference, paired bootstrap 95% CI | Per-transcript P(eval) correlation |
 | --- | --- | --- | --- | --- | --- |
@@ -164,31 +193,54 @@ The published pools don't exactly match the transcripts the authors scored. The 
 
 On the transcripts the paper scored, both judges reproduce its AUROC within sampling noise. The 95% intervals include zero, and mean P(eval) for each class is within 0.02 of the paper's.
 
-Haiku's lower full-pool AUROC (0.733) comes from the pool itself: it contains 20 GAIA Level 2 transcripts the paper never scored, and Haiku rates them as deployment-like (mean P(eval) 0.37). Without them the full-pool AUROC is 0.748.
+Haiku's lower full-pool AUROC (0.733) comes from the pool itself: it contains 20 GAIA Level 2 transcripts the paper never scored for this judge, and Haiku rates them as deployment-like (mean P(eval) 0.37). Without them the AUROC is 0.748.
 
 The bootstrap covers transcript sampling only, not variation between generations. Judges ran at the provider's default temperature, as in the paper.
 
 Route differences from the paper:
 
 - GPT-4.1 used OpenRouter, the same route as the paper.
-- Haiku 4.5 used the direct Anthropic API in the paper, but OpenRouter here. `claude_placeholder=true` reproduces its prompts. The remaining difference is that the 245 agentic transcripts' tool schemas aren't sent to the judge over OpenRouter.
+- Haiku 4.5 used the direct Anthropic API in the paper, but OpenRouter here. `claude_placeholder=true` reproduces its prompts. The remaining difference is that over OpenRouter the judge doesn't get the tool schemas of the 100 transcripts that carry them.
 
-For the other frontier judges only 54–59% of the scored transcripts are in the published pool (the rest were renamed or re-collected), so Haiku 4.5 and GPT-4.1 are the judges whose fresh runs can be compared with the paper.
+#### Which judges can be compared with the paper
+
+The published pools don't all match the transcripts the paper scored:
+
+- **Exact match (100% of the scored transcripts in the pool):** DeepSeek V3.2, GLM 5.1, Kimi K2.5 and Qwen 3.5, plus Haiku 4.5 and GPT-4.1 from `1-B`. The last two also include 20 GAIA Level 2 transcripts the paper didn't score for them.
+- **Partial match (54–59%):** the other six frontier judges. The rest of their scored transcripts were renamed or re-collected.
 
 ## Deviations from the original implementation
 
 | What changed | Why | Expected effect on scores |
 | --- | --- | --- |
-| Claude judges reached through OpenRouter don't get the transcript's tool schemas | Inspect sends tool schemas only to providers that require them; Anthropic's API does, OpenRouter's OpenAI-compatible API doesn't. Hawk offers Claude only through OpenRouter. | Affects the paper's Haiku 4.5 run (direct API) on agentic transcripts; the Haiku replication still matches the paper within noise |
-| Unanswered tool calls inside a transcript get an empty tool result, not only a trailing one | A few DataClaw transcripts have an assistant turn where some calls got results and some didn't. Anthropic rejects these requests, and they failed in the authors' run. The fix reproduces the prompt in the authors' only successful sample for such a transcript. | None for transcripts that already worked; makes 38 Haiku-pool and 32 GPT-4.1-pool transcripts scoreable on every probe |
+| For `claude-haiku-4-5` and `gpt-4.1`, `wmdp_bio.json` is loaded alongside `all.json` | Those two `all.json` files leave out the 10 WMDP-bio transcripts the paper scored (Table 7); every other pool includes them | Restores the paper's transcript set for those pools |
+| Unanswered tool calls inside a transcript get an empty tool result, not only a trailing one | 6 DataClaw transcripts per pool have an assistant turn where some calls got results and some didn't. Anthropic rejects these requests, and they failed in the authors' run. The fix reproduces the prompt in the authors' only successful sample for such a transcript. | Makes those 6 transcripts scoreable on every probe; no effect on others |
+| Claude judges reached through OpenRouter don't get the transcript's tool schemas | Inspect sends tool schemas only to providers that require them; Anthropic's API does, OpenRouter's OpenAI-compatible API doesn't | Only the 100 agentic evaluation transcripts carry schemas, so on the direct route their presence is itself a cue to the class. Without it the task is slightly harder |
+| Metrics read unreduced scores | Keeps parse failures out of other epochs' votes when running more than one epoch | None at one epoch, as in the paper |
 | No "uncertain" (0.5) vote | The published scorer has no uncertain path. One response in the authors' Haiku log was scored 0.5 by an earlier version. | Negligible (1 of 3,640 responses) |
-| Probe selection runs as a separate calibration task plus a CLI, not a pipeline stage | Keeps the Inspect task self-contained | None: the split and the exhaustive search are line-for-line ports, tested against the reference |
+| Probe selection is a calibration run plus a CLI, not a pipeline stage | Keeps the Inspect task self-contained | The search is a port of the reference's exhaustive search. The split follows the reference's `reproduce.yaml`, which differs from the authors' published run (see Probe sets). Exact AUROC ties go to the first subset in search order; the reference compares sklearn floats, so float rounding can pick a different subset among exact ties |
 | Stratified harmonisation correction (paper Section 3.3.3) not included | It isn't in the reference code, and Figure 6 reports uncorrected AUROC | None for Figure 6 |
 
 Kept on purpose, for comparability:
 
-- The reference adds a placeholder assistant turn before the probe for Claude judges, but only when the model name starts with `claude`. That covers `anthropic/claude-*` and not `openrouter/anthropic/claude-*`, so in the paper Haiku (run directly) got it while Sonnet and Opus (run through OpenRouter) didn't. Run Claude judges through the same route as the paper to compare with it.
+- The reference adds a placeholder assistant turn before the probe for Claude judges, but only when the model name starts with `claude`. That covers `anthropic/claude-*` and not `openrouter/anthropic/claude-*`, so in the paper Haiku (run directly) got it while Sonnet and Opus (run through OpenRouter) didn't. `claude_placeholder` overrides this.
 - The transcript's tool schemas are attached with `tool_choice="none"`. Inspect only sends them to providers that require them, which includes Anthropic once tool messages are present.
+- The scorer's fallback: if the `<label>` isn't an exact label, a label appearing once anywhere in the response is used. This can read a label mentioned in the explanation.
+- The label pattern is non-greedy from the last `<label>` opening, so an explanation that mentions a literal `<label>` tag can make it capture the wrong text. The fallback then usually recovers the label. Both quirks are rare: our parser agrees with the authors' on all but 1 of 9,506 responses in the published Haiku, GPT-4.1 and GPT-5.1 logs.
+
+## Changelog
+
+### 1-B
+
+- For pools whose `all.json` leaves out WMDP-bio (`claude-haiku-4-5`, `gpt-4.1`), also load `wmdp_bio.json`. Those pools grow from 738 to 748 transcripts.
+- Each tool schema now gets its own placeholder function. Before, all of a transcript's tools were sent under the last tool's name, which only mattered on routes that send schemas (direct Anthropic).
+- The probe is injected in the task's `setup`, so `--solver` no longer removes it.
+- Metrics read unreduced scores, so with several epochs a parse failure no longer averages into a real vote.
+- Bad `split` or `calibration_fraction` values raise an error, and a task built for one judge's pool refuses to run with a different judge.
+
+### 1-A
+
+- Initial implementation.
 
 ## Architecture
 
@@ -208,7 +260,7 @@ transcript × probe samples ──► inject_probe ──► generate ──► 
 ```bash
 uv sync
 uv run pre-commit install
-uv run inspect eval eval_detect_bench/eval_detect_bench --model anthropic/claude-sonnet-5-5
+uv run inspect eval eval_detect_bench/eval_detect_bench --model openai/gpt-4.1 --limit 20
 uv run inspect view
 ```
 
@@ -228,9 +280,11 @@ Slow tests run with `uv run pytest --runslow`. See [CONTRIBUTING.md](CONTRIBUTIN
 ## Layout
 
 ```text
-src/eval_detect_bench/        the eval: task module, eval.yaml
+src/eval_detect_bench/        the eval: task, dataset, solver, scorer, metrics, probes, selection
 tests/test_eval_detect_bench.py   its tests
-agent_artefacts/trajectory_analysis/inspect_scout/   Scout scanners for the transcript audit
+scripts/                      comparison with the paper's published scores and logs
+hawk/                         Hawk eval-set configs for the replication runs
+agent_artefacts/trajectory_analysis/inspect_scout/   Scout scanners for the transcript audit (template)
 ```
 
 ## Skills
@@ -244,4 +298,4 @@ The `inspect-evals` skills (create-eval, investigate-dataset, ensure-test-covera
 ## Keeping up with the template
 
 A weekly workflow runs `copier update` and opens a pull request when the template changed.
-`README.md`, `src/eval_detect_bench/` and `tests/eval_detect_bench/` are never overwritten by an update.
+`README.md`, `src/eval_detect_bench/` and `tests/test_eval_detect_bench.py` are never overwritten by an update.

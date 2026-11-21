@@ -491,8 +491,12 @@ def test_end_to_end_agentic_transcript_is_closed_and_tools_disabled() -> None:
 
 
 @pytest.mark.parametrize("model_name", ["mockllm/model", None])
-def test_task_needs_a_pool_for_unknown_models(model_name: str | None) -> None:
+def test_task_needs_a_pool_for_unknown_models(
+    model_name: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from eval_detect_bench.eval_detect_bench import resolve_pool
+
+    monkeypatch.delenv("INSPECT_EVAL_MODEL", raising=False)
 
     if model_name is None:  # no active model at all
         with pytest.raises(ValueError, match="No judge model is active"):
@@ -508,7 +512,7 @@ def test_task_needs_a_pool_for_unknown_models(model_name: str | None) -> None:
 
 
 def test_version_comes_from_eval_yaml() -> None:
-    assert EVAL_VERSION == "1-A"
+    assert EVAL_VERSION == "1-B"
 
 
 # --- real data --------------------------------------------------------------
@@ -520,11 +524,13 @@ def test_real_pool_composition() -> None:
     from eval_detect_bench.dataset import download_pool
 
     records = download_pool("claude-haiku-4-5")
-    assert len(records) == 738
+    # all.json has 738 transcripts; the 10 WMDP-bio ones come from wmdp_bio.json.
+    assert len(records) == 748
     counts = Counter(bool(r["metadata"]["eval_category"]) for r in records)
-    assert counts == {True: 405, False: 333}
+    assert counts == {True: 415, False: 333}
+    assert sum(str(r["id"]).startswith("wmdp_bio:") for r in records) == 10
     dataset = build_dataset(records, resolve_probes("paper", "claude-haiku-4-5"))
-    assert len(dataset) == 738 * 5
+    assert len(dataset) == 748 * 5
     assert len({s.id for s in dataset}) == len(dataset)
 
 
@@ -679,3 +685,104 @@ def test_metrics_are_epoch_safe() -> None:
     from pytest_inspect_evals.metrics import assert_agreeing_epochs_change_nothing
 
     assert_agreeing_epochs_change_nothing(_all_metrics(), METRIC_SCORES, metadata=METRIC_METADATA)
+
+
+# --- review fixes -------------------------------------------------------------
+
+
+def test_tool_defs_keep_distinct_names_when_attached() -> None:
+    from inspect_ai.solver import TaskState
+    from inspect_ai.tool import ToolDef
+
+    def make(name: str) -> dict[str, Any]:
+        return {
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        }
+
+    state = TaskState(
+        model="mockllm/model",  # pyright: ignore[reportArgumentType]
+        sample_id="x",
+        epoch=1,
+        input="",
+        messages=[],
+    )
+    state.tools = tool_defs([make("bash"), make("python"), make("submit")])  # type: ignore[assignment]
+    assert [ToolDef(t).name for t in state.tools] == ["bash", "python", "submit"]
+
+
+def test_parse_failures_are_not_averaged_across_epochs() -> None:
+    from pytest_inspect_evals.metrics import run_metrics
+
+    metadata = [
+        {"transcript_id": "e1", "eval_category": True},
+        {"transcript_id": "d1", "eval_category": False},
+        {"transcript_id": "e2", "eval_category": True},
+    ]
+    # e1 voted "evaluation" once and failed to parse once. A mean reduction
+    # would turn that into 0.0, a clean deployment vote.
+    epochs = [[1.0, PARSE_FAILURE], [0.0, 0.0], [1.0, 1.0]]
+    values = run_metrics(_all_metrics(), epochs, reducer="mean", metadata=metadata)
+    assert values["auroc"] == pytest.approx(1.0)
+    assert values["mean_p_eval_on_eval"] == pytest.approx(1.0)
+    assert values["parse_failure_rate"] == pytest.approx(1 / 6)
+
+
+def test_probe_is_injected_even_when_solver_is_replaced() -> None:
+    from inspect_ai.solver import generate
+
+    model = get_model("mockllm/model", custom_outputs=_oracle_judge)
+    with patch("eval_detect_bench.eval_detect_bench.download_pool", return_value=RECORDS):
+        task = eval_detect_bench(transcripts="gpt-4.1", probes=["direct_a"])
+    [log] = eval(tasks=task, model=model, solver=generate(), display="none")
+    assert_eval_success(log, expected_sample_count=len(RECORDS))
+    assert log.results is not None
+    assert log.results.scores[0].metrics["auroc"].value == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"split": "calib"}, "split must be"),
+        ({"split": "calibration", "calibration_fraction": 0.0}, "calibration_fraction"),
+        ({"split": "measurement", "calibration_fraction": 1.5}, "calibration_fraction"),
+    ],
+)
+def test_build_dataset_rejects_bad_split_arguments(kwargs: dict[str, Any], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_dataset(RECORDS, resolve_probes(["direct_a"], "x"), **kwargs)
+
+
+def test_judge_must_match_the_pool_it_was_built_for() -> None:
+    # Built while gpt-4.1 was the active model, then run with a different judge.
+    with (
+        patch("eval_detect_bench.eval_detect_bench.get_model", return_value="openai/gpt-4.1"),
+        patch("eval_detect_bench.eval_detect_bench.download_pool", return_value=RECORDS),
+    ):
+        task = eval_detect_bench(probes=["direct_a"])
+    [log] = eval(tasks=task, model="mockllm/model", display="none")
+    assert log.status == "error"
+    assert log.error is not None
+    assert "'gpt-4.1' transcript pool" in log.error.message
+
+
+def test_explicit_pool_can_be_judged_by_any_model() -> None:
+    model = get_model("mockllm/model", custom_outputs=_oracle_judge)
+    with patch("eval_detect_bench.eval_detect_bench.download_pool", return_value=RECORDS):
+        task = eval_detect_bench(transcripts="gpt-4.1", probes=["direct_a"])
+    [log] = eval(tasks=task, model=model, display="none")
+    assert log.status == "success"
+
+
+def test_add_missing_sources_appends_wmdp_only_when_absent() -> None:
+    from eval_detect_bench.dataset import add_missing_sources
+
+    wmdp = [_chat("wmdp_bio:1", True, "Which pathogen ...?")]
+    with patch("eval_detect_bench.dataset._download_records", return_value=wmdp) as fetch:
+        added = add_missing_sources(RECORDS, "gpt-4.1")
+        fetch.assert_called_once_with("gpt-4.1", "wmdp_bio")
+    assert [r["id"] for r in added] == [r["id"] for r in RECORDS] + ["wmdp_bio:1"]
+    with patch("eval_detect_bench.dataset._download_records") as fetch:
+        assert add_missing_sources(RECORDS + wmdp, "gpt-5.1") == RECORDS + wmdp
+        fetch.assert_not_called()
