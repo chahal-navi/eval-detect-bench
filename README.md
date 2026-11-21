@@ -173,7 +173,7 @@ These checks call no model. They feed the authors' published judge outputs throu
 
 ### Fresh runs
 
-Run on [Hawk](https://viewer.hawk.hawk.generalitylabs.ai/) on 21 November 2026 at version `1-B` (commit `132054d`), with the full pools and the paper's probe sets. Both judges were reached through OpenRouter, pinned to dated snapshots. Configs are in `hawk/`.
+Run on [Hawk](https://viewer.hawk.hawk.generalitylabs.ai/) on 21 November 2026 at version `2-B` (commit `132054d`, where the version was still labelled `1-B`; see Changelog), with the full pools and the paper's probe sets. Both judges were reached through OpenRouter, pinned to dated snapshots. Configs are in `hawk/`.
 
 | Judge | Hawk eval set | Samples | Errors | Parse failures | AUROC | AUPRC | Accuracy | Mean P(eval), eval / deploy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -182,7 +182,7 @@ Run on [Hawk](https://viewer.hawk.hawk.generalitylabs.ai/) on 21 November 2026 a
 
 #### Comparison with the paper
 
-Reproduce with `uv run python scripts/compare_with_paper.py <log>.eval`. At `1-B` each pool contains all 728 transcripts the paper scored for its judge, plus 20 GAIA Level 2 transcripts the paper didn't score. The comparison uses the 728.
+Reproduce with `uv run python scripts/compare_with_paper.py <log>.eval`. At `2-B` each pool contains all 728 transcripts the paper scored for its judge, plus 20 GAIA Level 2 transcripts the paper didn't score. The comparison uses the 728.
 
 | Judge | Paper (Fig. 6) | Ours on the paper's 728 transcripts | Difference, paired bootstrap 95% CI | Per-transcript P(eval) correlation | Mean P(eval) eval / deploy, ours vs paper |
 | --- | --- | --- | --- | --- | --- |
@@ -206,7 +206,7 @@ An earlier pair of runs at `1-A` (without WMDP-bio; eval sets `edb-gpt41-64c6an6
 
 The published pools don't all match the transcripts the paper scored:
 
-- **Exact match (100% of the scored transcripts in the pool):** DeepSeek V3.2, GLM 5.1, Kimi K2.5 and Qwen 3.5, plus Haiku 4.5 and GPT-4.1 from `1-B`. The last two also include 20 GAIA Level 2 transcripts the paper didn't score for them.
+- **Exact match (100% of the scored transcripts in the pool):** DeepSeek V3.2, GLM 5.1, Kimi K2.5 and Qwen 3.5, plus Haiku 4.5 and GPT-4.1 from `2-B`. The last two also include 20 GAIA Level 2 transcripts the paper didn't score for them.
 - **Partial match (54–59%):** the other six frontier judges. The rest of their scored transcripts were renamed or re-collected.
 
 ## Deviations from the original implementation
@@ -230,7 +230,9 @@ Kept on purpose, for comparability:
 
 ## Changelog
 
-### 1-B
+### 2-B
+
+First released as `1-B` and relabelled to follow the inspect_evals [versioning scheme](https://github.com/UKGovernmentBEIS/inspect_evals/blob/main/TASK_VERSIONING.md). The number changes because adding WMDP-bio changes scores. The letter changes because the `claude_placeholder` parameter (added after `1-A`) and the new argument checks change the task interface. The code is identical to `1-B`, so logs from `1-B` runs are `2-B` results.
 
 - For pools whose `all.json` leaves out WMDP-bio (`claude-haiku-4-5`, `gpt-4.1`), also load `wmdp_bio.json`. Those pools grow from 738 to 748 transcripts.
 - Each tool schema now gets its own placeholder function. Before, all of a transcript's tools were sent under the last tool's name, which only mattered on routes that send schemas (direct Anthropic).

@@ -1,7 +1,7 @@
 # EvalDetectBench full replication on Hawk, GPT-4.1 as judge (paper AUROC 0.784).
 # OpenRouter, pinned snapshot: the same route the paper used. 748 transcripts x 5 probes.
 #   hawk eval-set run hawk/gpt-4.1.eval-set.yaml
-name: edb-gpt41-1b
+name: edb-gpt41-2b
 tasks:
   - package: "git+https://github.com/chahal-navi/eval-detect-bench@132054de80aba541a28d610538476a8ccf532b5b"
     name: eval_detect_bench

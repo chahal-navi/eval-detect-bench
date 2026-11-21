@@ -512,7 +512,7 @@ def test_task_needs_a_pool_for_unknown_models(
 
 
 def test_version_comes_from_eval_yaml() -> None:
-    assert EVAL_VERSION == "1-B"
+    assert EVAL_VERSION == "2-B"
 
 
 # --- real data --------------------------------------------------------------
