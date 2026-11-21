@@ -173,27 +173,25 @@ These checks call no model. They feed the authors' published judge outputs throu
 
 ### Fresh runs
 
-Run on [Hawk](https://viewer.hawk.hawk.generalitylabs.ai/) on 18 November 2026 at version `1-A` (commit `90498bf`), with the paper's probe sets. Both judges were reached through OpenRouter, pinned to dated snapshots. Configs are in `hawk/`.
+Run on [Hawk](https://viewer.hawk.hawk.generalitylabs.ai/) on 21 November 2026 at version `1-B` (commit `132054d`), with the full pools and the paper's probe sets. Both judges were reached through OpenRouter, pinned to dated snapshots. Configs are in `hawk/`.
 
 | Judge | Hawk eval set | Samples | Errors | Parse failures | AUROC | AUPRC | Accuracy | Mean P(eval), eval / deploy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `openrouter/openai/gpt-4.1-2025-04-14` | [`edb-gpt41-64c6an6zrdoxcd3v`](https://viewer.hawk.hawk.generalitylabs.ai/eval-set/edb-gpt41-64c6an6zrdoxcd3v) | 3,690 | 0 | 0.03% | **0.766** | 0.754 | 0.718 | 0.636 / 0.270 |
-| `openrouter/anthropic/claude-4.5-haiku-20251001` (`claude_placeholder=true`) | [`edb-haiku45-lokdv8jsx2r8xoan`](https://viewer.hawk.hawk.generalitylabs.ai/eval-set/edb-haiku45-lokdv8jsx2r8xoan) | 3,690 | 0 | 0.05% | **0.733** | 0.729 | 0.667 | 0.713 / 0.429 |
-
-Version `1-A` read only `all.json`, so these runs lack the 10 WMDP-bio transcripts that `1-B` adds; they will be rerun at `1-B`.
+| `openrouter/openai/gpt-4.1-2025-04-14` | [`edb-gpt41-1b-e6jl0pylmziicq0w`](https://viewer.hawk.hawk.generalitylabs.ai/eval-set/edb-gpt41-1b-e6jl0pylmziicq0w) | 3,740 | 0 | 0.00% | **0.772** | 0.760 | 0.706 | 0.647 / 0.276 |
+| `openrouter/anthropic/claude-4.5-haiku-20251001` (`claude_placeholder=true`) | [`edb-haiku45-1b-r9mvqjq4rqr5al8p`](https://viewer.hawk.hawk.generalitylabs.ai/eval-set/edb-haiku45-1b-r9mvqjq4rqr5al8p) | 3,740 | 0 | 0.13% | **0.749** | 0.753 | 0.682 | 0.727 / 0.428 |
 
 #### Comparison with the paper
 
-Reproduce with `uv run python scripts/compare_with_paper.py <log>.eval`. The comparison uses the transcripts both the run and the paper scored: 718 at version `1-A`, and all 728 of the paper's at `1-B`.
+Reproduce with `uv run python scripts/compare_with_paper.py <log>.eval`. At `1-B` each pool contains all 728 transcripts the paper scored for its judge, plus 20 GAIA Level 2 transcripts the paper didn't score. The comparison uses the 728.
 
-| Judge | Paper (Fig. 6, its 728 transcripts) | Paper on the 718 common | Ours on the 718 common | Difference, paired bootstrap 95% CI | Per-transcript P(eval) correlation |
+| Judge | Paper (Fig. 6) | Ours on the paper's 728 transcripts | Difference, paired bootstrap 95% CI | Per-transcript P(eval) correlation | Mean P(eval) eval / deploy, ours vs paper |
 | --- | --- | --- | --- | --- | --- |
-| GPT-4.1 | 0.784 | 0.779 | 0.765 | −0.014 [−0.029, +0.001] | r = 0.93 |
-| Claude Haiku 4.5 | 0.758 | 0.755 | 0.748 | −0.008 [−0.026, +0.011] | r = 0.90 |
+| GPT-4.1 | 0.784 | 0.772 | −0.011 [−0.027, +0.005] | r = 0.93 | 0.649 / 0.276 vs 0.643 / 0.252 |
+| Claude Haiku 4.5 | 0.758 | 0.761 | +0.003 [−0.014, +0.020] | r = 0.91 | 0.742 / 0.428 vs 0.739 / 0.434 |
 
-On the transcripts the paper scored, both judges reproduce its AUROC within sampling noise. The 95% intervals include zero, and mean P(eval) for each class is within 0.02 of the paper's.
+Both judges reproduce the paper's AUROC within sampling noise: the 95% intervals include zero, and the transcript-level P(eval) correlates with the paper's at r ≥ 0.91.
 
-Haiku's lower full-pool AUROC (0.733) comes from the pool itself: it contains 20 GAIA Level 2 transcripts the paper never scored for this judge, and Haiku rates them as deployment-like (mean P(eval) 0.37). Without them the AUROC is 0.748.
+The full-pool AUROC is a little lower than on the 728 because of the 20 extra GAIA Level 2 transcripts, which the judges rate as fairly deployment-like (mean P(eval) 0.60 for GPT-4.1 and 0.43 for Haiku).
 
 The bootstrap covers transcript sampling only, not variation between generations. Judges ran at the provider's default temperature, as in the paper.
 
@@ -201,6 +199,8 @@ Route differences from the paper:
 
 - GPT-4.1 used OpenRouter, the same route as the paper.
 - Haiku 4.5 used the direct Anthropic API in the paper, but OpenRouter here. `claude_placeholder=true` reproduces its prompts. The remaining difference is that over OpenRouter the judge doesn't get the tool schemas of the 100 transcripts that carry them.
+
+An earlier pair of runs at `1-A` (without WMDP-bio; eval sets `edb-gpt41-64c6an6zrdoxcd3v` and `edb-haiku45-lokdv8jsx2r8xoan`) gave the same picture on the 718 transcripts they shared with the paper: GPT-4.1 0.765 vs 0.779, Haiku 0.748 vs 0.755.
 
 #### Which judges can be compared with the paper
 
